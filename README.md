@@ -1,4 +1,4 @@
-# EventScape
+# MapIT
 MICE 교과용 학생-교수 상호작용 플랫폼
 
 **데이터 지리학 기반 인터랙티브 MICE 기획 및 시뮬레이션 솔루션**
@@ -66,9 +66,9 @@ MICE 교과용 학생-교수 상호작용 플랫폼
 
 ## 👤 Author
 
-  - **Name:** (본인 성함)
+  - **Name:** 정지유
   - **Organization:** [MICE-Scape Official](https://www.google.com/search?q=https://github.com/MICE-Scape)
-  - **Contact:** (본인 이메일 주소)
+  - **Contact:** zieyou52@ewha.ac.kr
   - **Role:** Full-stack Developer & Service Planner
 
 -----
@@ -76,12 +76,3 @@ MICE 교과용 학생-교수 상호작용 플랫폼
 ## 📄 License
 
 This project is licensed under the MIT License.
-
------
-
-### 💡 README 관리 팁
-
-1.  **스크린샷 추가:** 나중에 사이트가 어느 정도 나오면 `## ✨ Key Features` 아래에 실제 실행 화면 스크린샷을 넣어주세요. (이미지가 있으면 훨씬 전문적으로 보입니다.)
-2.  **배지 활용:** 상단의 배지들은 실제 상태에 맞춰 링크를 연결해두면 클릭이 가능해져서 더 '진짜' 같습니다.
-
-이제 이 내용을 올리시고, **Vercel 배포**까지 완료한 뒤 그 주소를 README 상단에 **[Live Demo]** 링크로 추가하면 완벽합니다\! 🚀 다음 단계로 Vercel 배포 가이드가 필요하신가요?
