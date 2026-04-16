@@ -175,6 +175,9 @@ function AppShell() {
   const sendMessage = useAppStore((s) => s.sendMessage);
   const closeChat = useAppStore((s) => s.closeChat);
   const unreadByRoom = useAppStore((s) => s.unreadByRoom);
+  const loadEvents = useAppStore((s) => s.loadEvents);
+  const loadRoster = useAppStore((s) => s.loadRoster);
+  const loadTeams = useAppStore((s) => s.loadTeams);
   const mapApi = useAppStore((s) => s.mapApi);
   const env = useAppStore((s) => s.env);
   const [fb, setFb] = useState("");
@@ -641,6 +644,7 @@ function AppShell() {
 
   const openNotifications = () => {
     setNotifOpen(true);
+    void Promise.all([loadEvents(), loadRoster(), loadTeams()]).catch(() => {});
   };
 
   useEffect(() => {

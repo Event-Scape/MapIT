@@ -13,21 +13,34 @@ let realtimeDataKey = null;
 let dataRefreshTimer = null;
 let dataPollInterval = null;
 let visibilityCleanup = null;
+let dataPollTick = 0;
 const CURRENT_TEAM_KEY_PREFIX = "eventscape_current_team_";
+/** Realtime 없을 때 좋아요·피드백·알림 목록이 따라오도록 events/roster 폴링 (초). */
+const DATA_POLL_INTERVAL_SEC = 2.5;
+/** 팀 목록은 덜 자주 (위 간격의 배수). */
+const TEAMS_POLL_EVERY_N_TICKS = 6;
+
+function pullNotificationData(get, { includeTeams = true } = {}) {
+  const { me } = get();
+  if (!me) return Promise.resolve();
+  const jobs = [get().loadEvents(), get().loadRoster()];
+  if (includeTeams) jobs.push(get().loadTeams());
+  return Promise.all(jobs);
+}
 
 function startDataSyncFallback(get) {
   if (typeof window === "undefined" || !sb) return;
   stopDataSyncFallback();
+  dataPollTick = 0;
+  void pullNotificationData(get, { includeTeams: true });
   dataPollInterval = window.setInterval(() => {
-    const { me } = get();
-    if (!me) return;
-    void Promise.all([get().loadEvents(), get().loadTeams()]);
-  }, 12000);
+    dataPollTick += 1;
+    const includeTeams = dataPollTick % TEAMS_POLL_EVERY_N_TICKS === 0;
+    void pullNotificationData(get, { includeTeams });
+  }, DATA_POLL_INTERVAL_SEC * 1000);
   const onVis = () => {
     if (document.visibilityState !== "visible") return;
-    const { me } = get();
-    if (!me) return;
-    void Promise.all([get().loadEvents(), get().loadTeams()]);
+    void pullNotificationData(get, { includeTeams: true });
   };
   document.addEventListener("visibilitychange", onVis);
   visibilityCleanup = () => document.removeEventListener("visibilitychange", onVis);
