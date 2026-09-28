@@ -2,7 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import { MB_TOK } from "./config";
 import { TC } from "./demoData";
-import { useAppStore } from "./store";
+import { MICE_TYPES, useAppStore } from "./store";
+import AuthOverlay from "./components/AuthOverlay";
+import Onboarding from "./components/Onboarding";
+import Dashboard from "./components/Dashboard";
+import TeamManageModal from "./components/TeamManageModal";
+import ClassroomModal from "./components/ClassroomModal";
+import PlaceSearch from "./components/PlaceSearch";
+import RecommendationSection from "./components/RecommendationSection";
 
 const EVENT_TYPE_OPTIONS = ["Convention", "Incentive", "Meeting", "Exhibition"];
 const FEEDBACK_KEY_SEP = "||";
@@ -33,33 +40,20 @@ const EMPTY_REGISTER_FORM = {
   topic: "",
   description: "",
   scaleNum: "",
+  hidden: false,
 };
 
-function LoginOverlay() {
-  const login = useAppStore((s) => s.login);
-  const errorMessage = useAppStore((s) => s.errorMessage);
-  const me = useAppStore((s) => s.me);
-  const [name, setName] = useState("");
-  const [uid, setUid] = useState("");
-  if (me) return null;
-  return (
-    <div id="ls">
-      <div className="au login-card">
-        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 3 }}>
-          <div style={{ fontSize: 30, fontWeight: 900, letterSpacing: "-.04em", lineHeight: 1, whiteSpace: "nowrap", flexShrink: 0 }}>Map<span style={{ color: "var(--blue2)" }}>IT</span></div>
-          <div style={{ fontSize: 10.5, color: "var(--t3)", fontWeight: 600, lineHeight: 1.35 }}>
-            <div>made by</div>
-            <div>zieyou52@ewha.ac.kr</div>
-          </div>
-        </div>
-        <div style={{ fontSize: 11, color: "var(--t3)", fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", marginBottom: 30 }}>MICE 교육 플랫폼</div>
-        {errorMessage ? <div id="lerr" style={{ background: "rgba(255,79,107,.12)", border: "1px solid rgba(255,79,107,.3)", borderRadius: 10, padding: "9px 13px", fontSize: 12.5, color: "#ff7891", marginBottom: 13 }}>{errorMessage}</div> : null}
-        <div style={{ marginBottom: 13 }}><label className="fl">이름</label><input className="fi" placeholder="예: 김철수" value={name} onChange={(e) => setName(e.target.value)} /></div>
-        <div style={{ marginBottom: 22 }}><label className="fl">학번 / 교번</label><input className="fi mono" placeholder="예: 2024001" value={uid} onChange={(e) => setUid(e.target.value)} onKeyDown={(e) => e.key === "Enter" && login(name, uid).catch(() => useAppStore.getState().setError("이름 또는 학번/교번이 명단과 일치하지 않습니다."))} /></div>
-        <button className="btn bb" style={{ width: "100%", padding: 13, fontSize: 14, borderRadius: 13 }} onClick={() => login(name, uid).catch(() => useAppStore.getState().setError("이름 또는 학번/교번이 명단과 일치하지 않습니다."))}>로그인 →</button>
-      </div>
-    </div>
-  );
+const MICE_SHORT = { Meeting: "M", Incentive: "I", Convention: "C", Exhibition: "E" };
+
+/** 유형 필터 + 숨김 규칙: 숨긴 프로젝트는 소속 팀원과 교수자에게만 보임 */
+function isEventVisible(ev, me, myTeamNames, typeFilters) {
+  if (typeFilters && typeFilters.size > 0 && !typeFilters.has(ev.type)) return false;
+  if (ev.hidden) {
+    if (!me) return false;
+    if (me.role === "professor") return true;
+    return myTeamNames ? myTeamNames.has(ev.team_name) : false;
+  }
+  return true;
 }
 
 function MapView() {
@@ -70,6 +64,8 @@ function MapView() {
   const isDark = useAppStore((s) => s.isDark);
   const mapStyle = useAppStore((s) => s.mapStyle);
   const me = useAppStore((s) => s.me);
+  const typeFilters = useAppStore((s) => s.typeFilters);
+  const myTeams = useAppStore((s) => s.myTeams);
   const setMapClickPoint = useAppStore((s) => s.setMapClickPoint);
   const selectEvent = useAppStore((s) => s.selectEvent);
   const setMapApi = useAppStore((s) => s.setMapApi);
@@ -122,7 +118,10 @@ function MapView() {
     if (!mapRef.current) return;
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = [];
-    events.forEach((ev) => {
+    const myTeamNames = new Set(myTeams.map((t) => t.name));
+    events
+      .filter((ev) => isEventVisible(ev, me, myTeamNames, typeFilters))
+      .forEach((ev) => {
       const el = document.createElement("div");
       el.className = "pin";
       el.style.backgroundColor = (TC[ev.type] || TC.Convention).col;
@@ -130,16 +129,16 @@ function MapView() {
         e.stopPropagation();
         selectEvent(ev);
       });
-      markersRef.current.push(new mapboxgl.Marker(el).setLngLat([ev.lng, ev.lat]).addTo(mapRef.current));
-    });
-  }, [events, selectEvent]);
+        markersRef.current.push(new mapboxgl.Marker(el).setLngLat([ev.lng, ev.lat]).addTo(mapRef.current));
+      });
+  }, [events, selectEvent, typeFilters, myTeams, me]);
 
   return <div id="map" ref={elRef} />;
 }
 
 function AppShell() {
   const me = useAppStore((s) => s.me);
-  const roster = useAppStore((s) => s.roster);
+  const profiles = useAppStore((s) => s.profiles);
   const events = useAppStore((s) => s.events);
   const teams = useAppStore((s) => s.teams);
   const myTeams = useAppStore((s) => s.myTeams);
@@ -152,7 +151,6 @@ function AppShell() {
   const logout = useAppStore((s) => s.logout);
   const addTeam = useAppStore((s) => s.addTeam);
   const joinTeamByCode = useAppStore((s) => s.joinTeamByCode);
-  const getTeamCodeForMember = useAppStore((s) => s.getTeamCodeForMember);
   const currentEvent = useAppStore((s) => s.currentEvent);
   const openDetail = useAppStore((s) => s.openDetail);
   const selectEvent = useAppStore((s) => s.selectEvent);
@@ -176,125 +174,49 @@ function AppShell() {
   const closeChat = useAppStore((s) => s.closeChat);
   const unreadByRoom = useAppStore((s) => s.unreadByRoom);
   const loadEvents = useAppStore((s) => s.loadEvents);
-  const loadRoster = useAppStore((s) => s.loadRoster);
+  const loadProfiles = useAppStore((s) => s.loadProfiles);
   const loadTeams = useAppStore((s) => s.loadTeams);
   const mapApi = useAppStore((s) => s.mapApi);
   const env = useAppStore((s) => s.env);
+  const viewMode = useAppStore((s) => s.viewMode);
+  const setViewMode = useAppStore((s) => s.setViewMode);
+  const typeFilters = useAppStore((s) => s.typeFilters);
+  const toggleTypeFilter = useAppStore((s) => s.toggleTypeFilter);
+  const currentClassroom = useAppStore((s) => s.currentClassroom);
+  const needsOnboarding = useAppStore((s) => s.needsOnboarding);
+  const errorMessage = useAppStore((s) => s.errorMessage);
+  const clearError = useAppStore((s) => s.clearError);
   const [fb, setFb] = useState("");
   const [msg, setMsg] = useState("");
   const [form, setForm] = useState(() => ({ ...EMPTY_REGISTER_FORM }));
   const [pdfFiles, setPdfFiles] = useState([]);
   const [saving, setSaving] = useState(false);
-  const [teamCodeModal, setTeamCodeModal] = useState(null);
+  const [teamManageTeam, setTeamManageTeam] = useState(null);
+  const [railPanel, setRailPanel] = useState(null); // 'teams' | 'chats' | 'rank'
+  const [classroomOpen, setClassroomOpen] = useState(false);
+  const [editPdfFiles, setEditPdfFiles] = useState([]);
+  const [removeFileUrls, setRemoveFileUrls] = useState([]);
+  const editPdfRef = useRef(null);
   const [myPageOpen, setMyPageOpen] = useState(false);
   const [myPageSubPanel, setMyPageSubPanel] = useState(null);
   const [notifOpen, setNotifOpen] = useState(false);
-  const [myTeamsOpen, setMyTeamsOpen] = useState(true);
   const [allTeamsOpen, setAllTeamsOpen] = useState(false);
-  const [profTeamChatsOpen, setProfTeamChatsOpen] = useState(true);
   const [seenProjectStats, setSeenProjectStats] = useState({});
   const [seenStatsMissing, setSeenStatsMissing] = useState(false);
   const [isEditingProject, setIsEditingProject] = useState(false);
-  const [editForm, setEditForm] = useState({ title: "", members: "", venueName: "", type: "Convention", topic: "", description: "", scale: "" });
+  const [editForm, setEditForm] = useState({ title: "", members: "", venueName: "", type: "Convention", topic: "", description: "", scale: "", hidden: false });
   const [projectSaving, setProjectSaving] = useState(false);
   const [projectDeleteCode, setProjectDeleteCode] = useState("");
   const [projectDeleting, setProjectDeleting] = useState(false);
-  const [teamInfoModal, setTeamInfoModal] = useState(null);
   const pdfRef = useRef(null);
 
-  const [addrQ, setAddrQ] = useState("");
-  const [addrOpen, setAddrOpen] = useState(false);
-  const [addrLoading, setAddrLoading] = useState(false);
-  const [addrItems, setAddrItems] = useState([]);
-  const addrAbortRef = useRef(null);
-  const addrDebounceRef = useRef(null);
-  const addrCacheRef = useRef(new Map());
-  const ENABLE_ADDR_SEARCH = false;
-
-  useEffect(() => {
-    if (!ENABLE_ADDR_SEARCH) return;
-    if (!addrOpen) return;
-    const onDown = (e) => {
-      const root = document.getElementById("addrSearch");
-      if (root && !root.contains(e.target)) setAddrOpen(false);
-    };
-    const onKey = (e) => {
-      if (e.key === "Escape") setAddrOpen(false);
-    };
-    window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [addrOpen]);
-
-  useEffect(() => {
-    if (!ENABLE_ADDR_SEARCH) return;
-    const q = addrQ.trim();
-    const qKey = q.toLowerCase();
-    if (!addrOpen) return;
-    if (!q) {
-      setAddrItems([]);
-      setAddrLoading(false);
-      return;
-    }
-    // 최소 비용: 너무 짧은 입력은 호출하지 않음
-    if (q.length < 3) {
-      setAddrItems([]);
-      setAddrLoading(false);
-      return;
-    }
-    if (!env?.MB_TOK) return;
-    if (addrDebounceRef.current) window.clearTimeout(addrDebounceRef.current);
-    addrDebounceRef.current = window.setTimeout(async () => {
-      const cached = addrCacheRef.current.get(qKey);
-      if (cached) {
-        setAddrItems(cached);
-        setAddrLoading(false);
-        return;
-      }
-      const controller = new AbortController();
-      addrAbortRef.current?.abort?.();
-      addrAbortRef.current = controller;
-      setAddrLoading(true);
-      try {
-        const url =
-          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json` +
-          `?autocomplete=true&limit=5&language=ko&types=poi,place,address&access_token=${env.MB_TOK}`;
-        const res = await fetch(url, { signal: controller.signal });
-        const data = await res.json();
-        const next = (data?.features || [])
-          .map((f) => ({
-            id: f.id,
-            label: f.place_name,
-            lng: f.center?.[0],
-            lat: f.center?.[1],
-            place_type: Array.isArray(f.place_type) ? f.place_type[0] : null,
-          }))
-          .filter((x) => Number.isFinite(x.lng) && Number.isFinite(x.lat));
-
-        // 건물명(POI) 우선 정렬
-        const rank = (t) => (t === "poi" ? 0 : t === "place" ? 1 : t === "address" ? 2 : 3);
-        next.sort((a, b) => rank(a.place_type) - rank(b.place_type));
-
-        addrCacheRef.current.set(qKey, next);
-        setAddrItems(next);
-      } catch (e) {
-        if (e?.name !== "AbortError") setAddrItems([]);
-      } finally {
-        setAddrLoading(false);
-      }
-    }, 350);
-
-    return () => {
-      if (addrDebounceRef.current) window.clearTimeout(addrDebounceRef.current);
-    };
-  }, [addrQ, addrOpen, env?.MB_TOK]);
-
-  const ranked = useMemo(() => [...events].sort((a, b) => b.votes - a.votes).slice(0, 10), [events]);
   const myTeamNames = useMemo(() => new Set(myTeams.map((t) => t.name)), [myTeams]);
-  const registrationTeams = me?.role === "student" ? myTeams : teams;
+  const visibleEvents = useMemo(
+    () => events.filter((ev) => isEventVisible(ev, me, myTeamNames, typeFilters)),
+    [events, me, myTeamNames, typeFilters]
+  );
+  const ranked = useMemo(() => [...visibleEvents].sort((a, b) => b.votes - a.votes).slice(0, 10), [visibleEvents]);
+  const registrationTeams = me?.role === "professor" ? teams : myTeams;
   const selectedRegistrationTeamName = form.team;
   const selectedRegistrationTeamMembers = useMemo(() => {
     const selectedTeam = registrationTeams.find((t) => t.name === selectedRegistrationTeamName);
@@ -305,13 +227,14 @@ function AppShell() {
     () => events.filter((ev) => me?.role === "professor" || myTeamNames.has(ev.team_name)),
     [events, me?.role, myTeamNames]
   );
+  const hasAnyUnread = useMemo(() => Object.keys(unreadByRoom || {}).length > 0, [unreadByRoom]);
   const hasUnreadProfTeam = useMemo(() => {
     if (me?.role === "professor") return false;
     return myTeams.some((t) => unreadByRoom?.[`prof_team_${t.name}`]);
   }, [me?.role, myTeams, unreadByRoom]);
   const notificationItems = useMemo(() => {
-    const roleByUid = new Map(roster.map((u) => [u.uid, u.role]));
-    const nameByUid = new Map(roster.map((u) => [u.uid, u.name]));
+    const roleByUid = new Map(profiles.map((u) => [u.uid, u.role]));
+    const nameByUid = new Map(profiles.map((u) => [u.uid, u.name]));
     return myProjects.flatMap((ev) => {
       const seen = seenProjectStats[ev.id] || { likeUids: [], feedbackKeys: [], seenCreatedAt: null, seenSig: null };
       const seenLikeUids = new Set(seen.likeUids || []);
@@ -405,7 +328,7 @@ function AppShell() {
 
       return eventItems;
     });
-  }, [myProjects, me?.name, me?.uid, roster, seenProjectStats]);
+  }, [myProjects, me?.name, me?.uid, profiles, seenProjectStats]);
   const notificationCount = notificationItems.length;
   const myFeedbacks = useMemo(
     () =>
@@ -417,25 +340,11 @@ function AppShell() {
     [events, me?.name]
   );
   const canEditCurrentProject =
-    !!currentEvent && me?.role === "student" && !!currentTeam && currentEvent.team_name === currentTeam;
+    !!currentEvent && me?.role !== "professor" && myTeamNames.has(currentEvent.team_name);
 
   const handleTeamClick = async (team) => {
-    if (me.role === "professor") {
-      const teamProjects = events.filter((ev) => ev.team_name === team.name);
-      setTeamInfoModal({
-        name: team.name,
-        members: team.member_names || [],
-        projects: teamProjects,
-      });
-      return;
-    }
-    if (myTeamNames.has(team.name)) {
-      const code = getTeamCodeForMember(team.name);
-      if (!code) {
-        window.alert("팀 코드를 불러오지 못했습니다.");
-        return;
-      }
-      setTeamCodeModal({ name: team.name, code });
+    if (me.role === "professor" || myTeamNames.has(team.name)) {
+      setTeamManageTeam(team);
       return;
     }
     const input = window.prompt(`${team.name} 팀 고유 코드를 입력하세요.`);
@@ -447,6 +356,14 @@ function AppShell() {
     }
     window.alert(`${team.name} 팀에 소속되었습니다.`);
   };
+
+  // 팀 데이터 갱신 시 열려 있는 팀 관리 모달도 최신 상태로 동기화
+  useEffect(() => {
+    setTeamManageTeam((prev) => {
+      if (!prev) return prev;
+      return teams.find((t) => t.name === prev.name) || prev;
+    });
+  }, [teams]);
 
   const closeRegisterModal = () => {
     closeRegister();
@@ -479,13 +396,14 @@ function AppShell() {
         lat: Number(mapClickPoint.lat),
         lng: Number(mapClickPoint.lng),
         scale: form.scaleNum.trim(),
+        hidden: !!form.hidden,
         pdfFiles,
       });
       setForm({ ...EMPTY_REGISTER_FORM });
       setPdfFiles([]);
       if (pdfRef.current) pdfRef.current.value = "";
-    } catch {
-      /* store에서 업로드 실패 시 alert 처리 */
+    } catch (e) {
+      console.warn("[submitRegister] 저장 실패(alert는 store에서 처리됨):", e);
     } finally {
       setSaving(false);
     }
@@ -511,7 +429,11 @@ function AppShell() {
       topic: currentEvent.topic || "",
       description: currentEvent.description || "",
       scale: currentEvent.scale === "미정" ? "" : currentEvent.scale || "",
+      hidden: !!currentEvent.hidden,
     });
+    setEditPdfFiles([]);
+    setRemoveFileUrls([]);
+    if (editPdfRef.current) editPdfRef.current.value = "";
     setIsEditingProject(true);
   };
 
@@ -532,7 +454,13 @@ function AppShell() {
         topic: editForm.topic.trim(),
         description: editForm.description.trim(),
         scale: editForm.scale,
+        hidden: !!editForm.hidden,
+        newPdfFiles: editPdfFiles,
+        removeFileUrls,
       });
+      setEditPdfFiles([]);
+      setRemoveFileUrls([]);
+      if (editPdfRef.current) editPdfRef.current.value = "";
       setIsEditingProject(false);
     } finally {
       setProjectSaving(false);
@@ -552,7 +480,10 @@ function AppShell() {
       topic: currentEvent.topic || "",
       description: currentEvent.description || "",
       scale: currentEvent.scale === "미정" ? "" : currentEvent.scale || "",
+      hidden: !!currentEvent.hidden,
     });
+    setEditPdfFiles([]);
+    setRemoveFileUrls([]);
     setIsEditingProject(false);
     setProjectDeleteCode("");
   }, [currentEvent?.id]);
@@ -573,7 +504,8 @@ function AppShell() {
       setSeenStatsMissing(raw === null);
       const saved = JSON.parse(raw || "{}");
       setSeenProjectStats(saved && typeof saved === "object" ? saved : {});
-    } catch {
+    } catch (e) {
+      console.warn("[seenProjectStats:load] localStorage 읽기 실패:", e);
       setSeenProjectStats({});
       setSeenStatsMissing(true);
     }
@@ -599,8 +531,8 @@ function AppShell() {
     });
     try {
       localStorage.setItem(key, JSON.stringify(baseline));
-    } catch {
-      // ignore
+    } catch (e) {
+      console.warn("[seenProjectStats:save] localStorage 저장 실패:", e);
     }
     setSeenProjectStats(baseline);
     setSeenStatsMissing(false);
@@ -644,7 +576,9 @@ function AppShell() {
 
   const openNotifications = () => {
     setNotifOpen(true);
-    void Promise.all([loadEvents(), loadRoster(), loadTeams()]).catch(() => {});
+    void Promise.all([loadEvents(), loadProfiles(), loadTeams()]).catch((e) =>
+      console.warn("[openNotifications] 배경 새로고침 실패:", e)
+    );
   };
 
   useEffect(() => {
@@ -654,168 +588,234 @@ function AppShell() {
     }));
   }, [selectedRegistrationTeamMembers]);
 
-  if (!me) return null;
+  if (!me || needsOnboarding) return null;
   return (
-    <div id="body" className={isDark ? "" : "lm"}>
+    <div id="body" className={`${isDark ? "dm" : ""} ${viewMode === "map" ? "view-map" : "view-main"}`}>
       <div id="app">
-        {ENABLE_ADDR_SEARCH ? (
+        <div id="topbar">
+          <div className="tb-brand">Map<b>IT</b></div>
+          <div className="view-toggle">
+            <button type="button" className={viewMode === "main" ? "on" : ""} onClick={() => setViewMode("main")}>
+              🏠 메인
+            </button>
+            <button type="button" className={viewMode === "map" ? "on" : ""} onClick={() => setViewMode("map")}>
+              🗺️ 지도
+            </button>
+          </div>
+          <div className="filter-chips" title="MICE 유형 필터">
+            {MICE_TYPES.map((t) => (
+              <button
+                key={`flt-${t}`}
+                type="button"
+                className={`chip ${typeFilters.has(t) ? "on" : ""}`}
+                onClick={() => toggleTypeFilter(t)}
+                title={t}
+              >
+                {MICE_SHORT[t]}
+              </button>
+            ))}
+          </div>
+          {viewMode === "map" ? (
+            <PlaceSearch
+              onPick={(it) => {
+                if (registerOpen) setForm((p) => ({ ...p, venueName: it.label }));
+              }}
+            />
+          ) : null}
+          {viewMode === "main" ? (
+            <>
+              <button type="button" className="tb-icon-btn" title={isDark ? "라이트 모드로" : "다크 모드로"} onClick={toggleTheme}>
+                {isDark ? "☀️" : "🌙"}
+              </button>
+              <button type="button" className="tb-icon-btn" title="로그아웃" onClick={logout}>⏻</button>
+            </>
+          ) : null}
+        </div>
+        {errorMessage ? (
           <div
-            id="addrSearch"
-            role="search"
-            onMouseDown={(e) => {
-              // keep focus when clicking inside results
-              e.stopPropagation();
+            className="card"
+            role="alert"
+            style={{
+              position: "fixed",
+              top: "var(--inset)",
+              right: "var(--inset)",
+              zIndex: 300,
+              padding: "10px 14px",
+              display: "flex",
+              gap: 10,
+              alignItems: "center",
+              fontSize: 12.5,
+              color: "var(--red, #ff5c7a)",
+              maxWidth: 360,
             }}
           >
-            <div className={`addr-box ${addrOpen ? "open" : ""}`}>
-              <input
-                className="addr-input"
-                value={addrQ}
-                placeholder="주소/건물명 찾기… (3글자 이상)"
-                onFocus={() => setAddrOpen(true)}
-                onChange={(e) => {
-                  setAddrQ(e.target.value);
-                  setAddrOpen(true);
-                }}
-              />
-              <button
-                type="button"
-                className="addr-clear"
-                aria-label="검색어 지우기"
-                onClick={() => {
-                  setAddrQ("");
-                  setAddrItems([]);
-                  setAddrOpen(false);
-                }}
-              >
-                ✕
-              </button>
-            </div>
-            {addrOpen ? (
-              <div className="addr-results" onMouseDown={(e) => e.preventDefault()}>
-                {!env?.MB_TOK ? (
-                  <div className="addr-empty">Mapbox 토큰이 없어 주소 검색을 사용할 수 없습니다.</div>
-                ) : addrLoading ? (
-                  <div className="addr-empty">검색 중…</div>
-                ) : addrItems.length === 0 ? (
-                  <div className="addr-empty">검색 결과가 없습니다.</div>
-                ) : (
-                  addrItems.map((it) => (
-                    <button
-                      key={it.id}
-                      type="button"
-                      className="addr-item"
-                      onClick={() => {
-                        mapApi?.flyTo?.({ lng: it.lng, lat: it.lat, zoom: 15 });
-                        setAddrQ(it.label);
-                        setAddrOpen(false);
-                      }}
-                    >
-                      <div className="addr-title">{it.label}</div>
-                      <div className="addr-sub mono">
-                        {it.lat.toFixed(5)}, {it.lng.toFixed(5)}
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-            ) : null}
+            <span>{errorMessage}</span>
+            <button type="button" className="btn-hdr" onClick={clearError} aria-label="닫기">✕</button>
           </div>
         ) : null}
-        <aside className="sidebar" id="sl">
-          <div style={{ padding: "18px 16px 13px", borderBottom: "1px solid var(--bd)", flexShrink: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 13, flexWrap: "wrap" }}>
-              <div style={{ width: 30, height: 30, borderRadius: 8, background: "var(--blue)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>🌍</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: "1 1 auto" }}>
-                <span style={{ fontSize: 15, fontWeight: 900, letterSpacing: "-.03em", color: "var(--t1)", lineHeight: 1.15, whiteSpace: "nowrap", flexShrink: 0 }}>
-                  Map<span style={{ color: "var(--blue2)" }}>IT</span>
-                </span>
-                <div style={{ fontSize: 9.5, color: "var(--t3)", fontWeight: 600, lineHeight: 1.3 }}>
-                  <div>made by</div>
-                  <div>zieyou52@ewha.ac.kr</div>
-                </div>
-              </div>
+        {viewMode === "main" ? (
+          <Dashboard
+            visibleEvents={visibleEvents}
+            notificationItems={notificationItems}
+            markNotificationAsRead={markNotificationAsRead}
+            onTeamClick={handleTeamClick}
+            onOpenClassrooms={() => setClassroomOpen(true)}
+            onOpenMyPage={openMyPage}
+          />
+        ) : null}
+        {viewMode === "map" ? (
+        <nav id="rail" aria-label="주 메뉴">
+          <div className="rail-logo" title="MapIT">🌍</div>
+          <button type="button" className={`rail-btn ${myPageOpen ? "on" : ""}`} title="마이페이지" onClick={openMyPage}>👤</button>
+          <button type="button" className={`rail-btn ${notifOpen ? "on" : ""}`} title="알림" onClick={openNotifications}>
+            🔔
+            {notificationCount > 0 ? <span className="rail-badge">{notificationCount > 99 ? "99+" : notificationCount}</span> : null}
+          </button>
+          <button type="button" className={`rail-btn ${classroomOpen ? "on" : ""}`} title="교실" onClick={() => setClassroomOpen(true)}>🏫</button>
+          <div className="rail-sep" />
+          <button
+            type="button"
+            className={`rail-btn ${railPanel === "teams" ? "on" : ""}`}
+            title="팀"
+            onClick={() => setRailPanel((p) => (p === "teams" ? null : "teams"))}
+          >
+            👥
+          </button>
+          <button
+            type="button"
+            className={`rail-btn ${railPanel === "chats" ? "on" : ""}`}
+            title="채팅"
+            onClick={() => setRailPanel((p) => (p === "chats" ? null : "chats"))}
+          >
+            💬
+            {hasAnyUnread ? <span className="rail-dot" /> : null}
+          </button>
+          <button
+            type="button"
+            className={`rail-btn ${railPanel === "rank" ? "on" : ""}`}
+            title="인기 프로젝트"
+            onClick={() => setRailPanel((p) => (p === "rank" ? null : "rank"))}
+          >
+            🏆
+          </button>
+          <div className="rail-spacer" />
+          <button type="button" className="rail-btn" title={isDark ? "라이트 모드로" : "다크 모드로"} onClick={toggleTheme}>
+            {isDark ? "☀️" : "🌙"}
+          </button>
+          <button
+            type="button"
+            className="rail-btn rail-avatar"
+            title={`${me.name} · 마이페이지`}
+            style={{ background: me.avatarColor || "var(--blue)" }}
+            onClick={openMyPage}
+          >
+            {me.role === "professor" ? "👨‍🏫" : me.role === "practitioner" ? "💼" : "🎓"}
+          </button>
+          <button type="button" className="rail-btn" title="로그아웃" onClick={logout}>⏻</button>
+        </nav>
+        ) : null}
+        {viewMode === "map" && railPanel ? (
+          <div id="flyout">
+            <div className="fly-hd">
+              <span>{railPanel === "teams" ? "팀 & 교실" : railPanel === "chats" ? "채팅" : "인기 프로젝트"}</span>
+              <button type="button" className="btn-hdr" onClick={() => setRailPanel(null)} aria-label="닫기">✕</button>
             </div>
-            <div className="card" style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 11px" }}>
-              <div style={{ width: 28, height: 28, borderRadius: "50%", background: "linear-gradient(135deg,var(--blue),#7c3aed)", display: "flex", alignItems: "center", justifyContent: "center" }}>{me.role === "professor" ? "👨‍🏫" : "🎓"}</div>
-              <div>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--t1)" }}>{me.name}</div>
-                <div style={{ fontSize: 10, color: "var(--t3)" }}>{me.role === "professor" ? "교수" : `학생 · ${currentTeam || me.team || ""}`}</div>
-              </div>
-            </div>
-            {me.role !== "professor" && myTeams.length > 1 ? (
-              <div style={{ marginTop: 10 }}>
-                <label className="fl">현재 팀</label>
-                <select
-                  className="fi"
-                  value={currentTeam || ""}
-                  onChange={(e) => setCurrentTeam(e.target.value)}
-                  style={{ cursor: "pointer" }}
-                >
-                  {myTeams.map((t) => (
-                    <option key={`ct-${t.name}`} value={t.name}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : null}
-          </div>
-          <div style={{ padding: "10px 9px", flex: 1, overflowY: "auto" }} className="scroll">
-            <div className={`ni ${myPageOpen ? "on" : ""}`} onClick={openMyPage}>👤 마이페이지</div>
-            <div className={`ni ${notifOpen ? "on" : ""}`} onClick={openNotifications}>
-              🔔 알림
-              {notificationCount > 0 ? <span className="nib">{notificationCount > 99 ? "99+" : notificationCount}</span> : null}
-            </div>
-            <div className="divider" style={{ margin: "6px 0 8px" }} />
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 7px 7px", gap: 8 }}>
-              <button
-                type="button"
-                onClick={() => setMyTeamsOpen((v) => !v)}
-                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: "var(--t3)" }}
-              >
-                <span id="tl" style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase" }}>
-                  {me.role === "professor" ? "등록된 팀" : "내 소속 팀"}
-                </span>
-                <span style={{ fontSize: 11, color: "var(--t3)" }}>{myTeamsOpen ? "▾" : "▸"}</span>
-              </button>
-              {me.role !== "professor" ? <button id="atb" onClick={() => addTeam().catch(() => {})} style={{ background: "none", color: "var(--blue2)", fontSize: 11, border: "1px solid var(--bd)" }}>+ 팀 등록</button> : null}
-            </div>
-            {myTeamsOpen ? (
-              <div id="tlist">{(me.role === "professor" ? teams : myTeams).map((t) => <button type="button" className="tp" style={{ width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer" }} key={`my-${t.name}`} onClick={() => handleTeamClick(t)}>{t.name}</button>)}</div>
-            ) : null}
-            {me.role !== "professor" ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setAllTeamsOpen((v) => !v)}
-                  style={{ background: "none", border: "none", padding: "10px 7px 7px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: "var(--t3)", width: "100%" }}
-                >
-                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase" }}>전체 팀</span>
-                  <span style={{ fontSize: 11, color: "var(--t3)" }}>{allTeamsOpen ? "▾" : "▸"}</span>
-                </button>
-                {allTeamsOpen ? (
-                  <div id="tlist">{teams.map((t) => <button type="button" className="tp" style={{ width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer" }} key={`all-${t.name}`} onClick={() => handleTeamClick(t)}>{t.name}</button>)}</div>
-                ) : null}
-              </>
-            ) : null}
-            <div className="divider" />
-            {me.role === "professor" ? (
-              <>
-                <div className="ni" onClick={() => openChat("global")}>
-                  💬 전체 채팅
-                  {unreadByRoom?.global_chat ? <span className="dot" /> : null}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setProfTeamChatsOpen((v) => !v)}
-                  style={{ background: "none", border: "none", padding: "10px 7px 7px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: "var(--t3)", width: "100%" }}
-                >
-                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase" }}>팀별 채팅</span>
-                  <span style={{ fontSize: 11, color: "var(--t3)" }}>{profTeamChatsOpen ? "▾" : "▸"}</span>
-                </button>
-                {profTeamChatsOpen ? (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <div className="fly-body scroll">
+              {railPanel === "teams" ? (
+                <>
+                  <button
+                    type="button"
+                    className="card"
+                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 11px", width: "100%", marginBottom: 10, cursor: "pointer", textAlign: "left" }}
+                    onClick={() => setClassroomOpen(true)}
+                  >
+                    <span style={{ fontSize: 14 }}>🏫</span>
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, color: "var(--t1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {currentClassroom ? currentClassroom.name : "교실 선택 / 등록"}
+                    </span>
+                    <span style={{ fontSize: 10, color: "var(--blue2)", fontWeight: 700 }}>변경 ›</span>
+                  </button>
+                  {me.role !== "professor" && myTeams.length > 1 ? (
+                    <div style={{ marginBottom: 10 }}>
+                      <label className="fl">현재 팀</label>
+                      <select className="fi" value={currentTeam || ""} onChange={(e) => setCurrentTeam(e.target.value)} style={{ cursor: "pointer" }}>
+                        {myTeams.map((t) => (
+                          <option key={`ct-${t.name}`} value={t.name}>{t.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 4px 7px", gap: 8 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--t3)" }}>
+                      {me.role === "professor" ? "등록된 팀" : "내 소속 팀"}
+                    </span>
+                    {me.role !== "professor" ? (
+                      <button
+                        type="button"
+                        onClick={() => addTeam().catch((e) => console.warn("[addTeam] 팀 생성 실패:", e))}
+                        style={{ background: "none", color: "var(--blue2)", fontSize: 11, border: "1px solid var(--bd)", borderRadius: 8, padding: "3px 8px" }}
+                      >
+                        + 팀 등록
+                      </button>
+                    ) : null}
+                  </div>
+                  <div>
+                    {(me.role === "professor" ? teams : myTeams).map((t) => (
+                      <button
+                        type="button"
+                        className="tp"
+                        style={{ width: "100%", textAlign: "left", background: "none", border: "none" }}
+                        key={`my-${t.name}`}
+                        onClick={() => handleTeamClick(t)}
+                      >
+                        <span style={{ width: 9, height: 9, borderRadius: "50%", background: t.color || "var(--blue)", flexShrink: 0 }} />
+                        {t.name}
+                      </button>
+                    ))}
+                    {(me.role === "professor" ? teams : myTeams).length === 0 ? (
+                      <div style={{ fontSize: 12, color: "var(--t3)", padding: "4px 6px" }}>아직 팀이 없어요.</div>
+                    ) : null}
+                  </div>
+                  {me.role !== "professor" ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setAllTeamsOpen((v) => !v)}
+                        style={{ background: "none", border: "none", padding: "12px 4px 7px", display: "flex", alignItems: "center", gap: 6, color: "var(--t3)", width: "100%" }}
+                      >
+                        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase" }}>전체 팀</span>
+                        <span style={{ fontSize: 11 }}>{allTeamsOpen ? "▾" : "▸"}</span>
+                      </button>
+                      {allTeamsOpen ? (
+                        <div>
+                          {teams.map((t) => (
+                            <button
+                              type="button"
+                              className="tp"
+                              style={{ width: "100%", textAlign: "left", background: "none", border: "none" }}
+                              key={`all-${t.name}`}
+                              onClick={() => handleTeamClick(t)}
+                            >
+                              <span style={{ width: 9, height: 9, borderRadius: "50%", background: t.color || "var(--blue)", flexShrink: 0 }} />
+                              {t.name}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
+                </>
+              ) : null}
+              {railPanel === "chats" ? (
+                me.role === "professor" ? (
+                  <>
+                    <div className="ni" onClick={() => openChat("global")}>
+                      💬 전체 채팅
+                      {unreadByRoom?.global_chat ? <span className="dot" /> : null}
+                    </div>
+                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--t3)", padding: "10px 4px 7px" }}>
+                      팀별 채팅
+                    </div>
                     {teams.map((t) => {
                       const room = `prof_team_${t.name}`;
                       return (
@@ -825,40 +825,48 @@ function AppShell() {
                         </div>
                       );
                     })}
-                  </div>
-                ) : null}
-              </>
-            ) : (
-              <>
-                <div className="ni" onClick={() => openChat("prof_team", currentTeam || me.team || "")}>
-                  💬 교수님과 팀 채팅
-                  {hasUnreadProfTeam ? <span className="dot" /> : null}
-                </div>
-                <div className="ni" onClick={() => openChat("global")}>
-                  💬 전체 채팅
-                  {unreadByRoom?.global_chat ? <span className="dot" /> : null}
-                </div>
-              </>
-            )}
+                  </>
+                ) : (
+                  <>
+                    <div className="ni" onClick={() => openChat("prof_team", currentTeam || me.team || "")}>
+                      💬 교수님과 팀 채팅
+                      {hasUnreadProfTeam ? <span className="dot" /> : null}
+                    </div>
+                    <div className="ni" onClick={() => openChat("global")}>
+                      💬 전체 채팅
+                      {unreadByRoom?.global_chat ? <span className="dot" /> : null}
+                    </div>
+                  </>
+                )
+              ) : null}
+              {railPanel === "rank" ? (
+                ranked.length === 0 ? (
+                  <div style={{ fontSize: 12, color: "var(--t3)", padding: "4px 6px" }}>표시할 프로젝트가 없습니다.</div>
+                ) : (
+                  ranked.map((ev, i) => (
+                    <div key={ev.id} className="ri" onClick={() => selectEvent(ev)}>
+                      <span style={{ fontSize: 11, fontWeight: 800, color: i < 3 ? "var(--blue2)" : "var(--t3)", width: 16 }}>{i + 1}</span>
+                      <span style={{ fontSize: 15 }}>{(TC[ev.type] || TC.Convention).icon}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.title}</div>
+                        <div style={{ fontSize: 10.5, color: "var(--t3)" }}>{ev.team_name}</div>
+                      </div>
+                      <div>❤️ {ev.votes}</div>
+                    </div>
+                  ))
+                )
+              ) : null}
+            </div>
+            {railPanel === "teams" ? <div className="fly-foot">made by zieyou52@ewha.ac.kr</div> : null}
           </div>
-          <div style={{ padding: "11px 13px", borderTop: "1px solid var(--bd)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 9 }}><div className={`tgl ${isDark ? "" : "on"}`} id="tg" onClick={toggleTheme}><div className="tgk" /></div><span id="tglabel" style={{ fontSize: 12, color: "var(--t2)", fontWeight: 600 }}>{isDark ? "다크 모드" : "라이트 모드"}</span></div>
-            <button className="btn bg" style={{ width: "100%" }} onClick={logout}>로그아웃</button>
+        ) : null}
+        {viewMode === "map" ? (
+          <div id="mapStyleCtl" aria-label="지도 스타일">
+            <button type="button" className={`mstl ${mapStyle === "light" ? "on" : ""}`} title="라이트 지도" onClick={() => setMapStyle("light")}>☀️</button>
+            <button type="button" className={`mstl ${mapStyle === "dark" ? "on" : ""}`} title="다크 지도" onClick={() => setMapStyle("dark")}>🌙</button>
+            <button type="button" className={`mstl ${mapStyle === "satellite" ? "on" : ""}`} title="위성 지도" onClick={() => setMapStyle("satellite")}>🛰️</button>
           </div>
-        </aside>
-        <aside className="sidebar" id="sr">
-          <div style={{ padding: "18px 16px 13px", borderBottom: "1px solid var(--bd)" }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: "var(--t1)" }}>인기 프로젝트</div>
-          </div>
-          <div id="rl" style={{ flex: 1, overflowY: "auto", padding: 10 }} className="scroll">
-            {ranked.map((ev) => <div key={ev.id} className="ri" onClick={() => selectEvent(ev)}><span style={{ fontSize: 15 }}>{(TC[ev.type] || TC.Convention).icon}</span><div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 700 }}>{ev.title}</div><div style={{ fontSize: 10.5, color: "var(--t3)" }}>{ev.team_name}</div></div><div>❤️ {ev.votes}</div></div>)}
-          </div>
-          <div style={{ padding: "12px 13px", borderTop: "1px solid var(--bd)" }}>
-            <button type="button" className={mapStyle === "dark" ? "msb on" : "msb"} onClick={() => setMapStyle("dark")}>🌙 다크</button>
-            <button type="button" className={mapStyle === "light" ? "msb on" : "msb"} onClick={() => setMapStyle("light")}>☀️ 라이트</button>
-            <button type="button" className={mapStyle === "satellite" ? "msb on" : "msb"} onClick={() => setMapStyle("satellite")}>🛰️ 위성</button>
-          </div>
-        </aside>
+        ) : null}
         <div id="mp" className={myPageOpen ? "open" : ""}>
           <div className="panel-hd" style={{ padding: 16, borderBottom: "1px solid var(--bd)" }}>
             <span>👤 마이페이지</span>
@@ -929,7 +937,7 @@ function AppShell() {
                         >
                           상세 보기
                         </button>
-                        <button type="button" className="btn" style={{ flex: 1, background: "rgba(255,79,107,.12)", color: "var(--red)" }} onClick={() => toggleLikeByEventId(ev.id).catch(() => {})}>좋아요 취소</button>
+                        <button type="button" className="btn" style={{ flex: 1, background: "rgba(255,79,107,.12)", color: "var(--red)" }} onClick={() => toggleLikeByEventId(ev.id).catch((e) => console.warn("[toggleLikeByEventId] 좋아요 취소 실패:", e))}>좋아요 취소</button>
                       </div>
                     </div>
                   ))}
@@ -950,7 +958,7 @@ function AppShell() {
                         style={{ flex: 1 }}
                         onClick={() => {
                           const event = events.find((ev) => ev.id === f.eventId);
-                          if (event) selectEvent(event);
+                          if (event) openDetail(event);
                         }}
                       >
                         {f.teamName} - 내 피드백
@@ -959,7 +967,7 @@ function AppShell() {
                         type="button"
                         className="btn"
                         style={{ flex: 1, background: "rgba(255,79,107,.12)", color: "var(--red)" }}
-                        onClick={() => deleteFeedback({ eventId: f.eventId, feedbackIndex: f.feedbackIndex }).catch(() => {})}
+                        onClick={() => deleteFeedback({ eventId: f.eventId, feedbackIndex: f.feedbackIndex }).catch((e) => console.warn("[deleteFeedback] 피드백 삭제 실패:", e))}
                       >
                         삭제
                       </button>
@@ -970,7 +978,7 @@ function AppShell() {
             )}
           </div>
         </div>
-        {currentEvent ? (
+        {viewMode === "map" && currentEvent ? (
           <div id="bc" className="vis bar-surface">
             <div style={{ padding: "16px 18px", display: "flex", gap: 13, alignItems: "center" }}>
               <div id="bci">{(TC[currentEvent.type] || TC.Convention).icon}</div>
@@ -979,7 +987,7 @@ function AppShell() {
                 <div id="bctm">{currentEvent.team_name}</div>
               </div>
               <button type="button" className="btn bb" onClick={() => openDetail(currentEvent)}>기획 상세보기</button>
-              <button type="button" className={`bl ${currentEvent.liked ? "on" : ""}`} onClick={() => toggleLike().catch(() => {})}>❤️ {currentEvent.votes}</button>
+              <button type="button" className={`bl ${currentEvent.liked ? "on" : ""}`} onClick={() => toggleLike().catch((e) => console.warn("[toggleLike] 좋아요 실패:", e))}>❤️ {currentEvent.votes}</button>
             </div>
           </div>
         ) : null}
@@ -1029,7 +1037,69 @@ function AppShell() {
                     <label className="fl">기획 내용</label>
                     <textarea className="fi" rows={5} value={editForm.description} onChange={(e) => setEditForm((p) => ({ ...p, description: e.target.value }))} />
                   </div>
-                  <button type="button" className="btn bb" disabled={projectSaving} onClick={() => submitProjectEdit().catch(() => {})}>
+                  <div>
+                    <label className="fl">첨부 파일 (PDF)</label>
+                    {(currentEvent.files || []).length === 0 ? (
+                      <div style={{ fontSize: 11.5, color: "var(--t3)", marginBottom: 6 }}>첨부된 파일이 없습니다.</div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 8 }}>
+                        {(currentEvent.files || []).map((f, i) => {
+                          const name = typeof f === "string" ? f : f.name;
+                          const url = typeof f === "string" ? f : f.url;
+                          const marked = removeFileUrls.includes(url);
+                          return (
+                            <div key={`edit-file-${i}`} className="card" style={{ padding: "7px 10px", display: "flex", alignItems: "center", gap: 8 }}>
+                              <span style={{ flex: 1, fontSize: 12, color: marked ? "var(--t3)" : "var(--t1)", textDecoration: marked ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                📄 {name}
+                              </span>
+                              <button
+                                type="button"
+                                className="btn"
+                                style={{ padding: "3px 8px", fontSize: 11, background: marked ? "var(--s3)" : "rgba(255,79,107,.12)", color: marked ? "var(--t2)" : "var(--red, #ff5c7a)" }}
+                                onClick={() =>
+                                  setRemoveFileUrls((prev) =>
+                                    prev.includes(url) ? prev.filter((u) => u !== url) : [...prev, url]
+                                  )
+                                }
+                              >
+                                {marked ? "삭제 취소" : "삭제"}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <input
+                      ref={editPdfRef}
+                      type="file"
+                      accept="application/pdf,.pdf"
+                      multiple
+                      className="fi"
+                      style={{ padding: 8 }}
+                      onChange={(e) => {
+                        const list = Array.from(e.target.files || []);
+                        const ok = list.filter((f) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"));
+                        if (ok.length < list.length) window.alert("PDF 파일만 첨부할 수 있습니다.");
+                        setEditPdfFiles(ok);
+                      }}
+                    />
+                    {editPdfFiles.length > 0 ? (
+                      <div style={{ fontSize: 11, color: "var(--t3)", marginTop: 4 }}>{editPdfFiles.length}개 파일 추가 예정</div>
+                    ) : null}
+                  </div>
+                  <label className="card" style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={!!editForm.hidden}
+                      onChange={(e) => setEditForm((p) => ({ ...p, hidden: e.target.checked }))}
+                      style={{ width: 15, height: 15, accentColor: "var(--blue2)" }}
+                    />
+                    <div>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--t1)" }}>🙈 프로젝트 숨기기</div>
+                      <div style={{ fontSize: 10.5, color: "var(--t3)", marginTop: 2 }}>완성 전까지 우리 팀과 교수자에게만 보여요.</div>
+                    </div>
+                  </label>
+                  <button type="button" className="btn bb" disabled={projectSaving} onClick={() => submitProjectEdit().catch((e) => console.warn("[submitProjectEdit] 프로젝트 수정 저장 실패:", e))}>
                     {projectSaving ? "저장 중..." : "수정 저장"}
                   </button>
                   <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--bd)" }}>
@@ -1053,8 +1123,8 @@ function AppShell() {
                             setProjectDeleteCode("");
                             setIsEditingProject(false);
                           }
-                        } catch {
-                          /* store에서 alert */
+                        } catch (e) {
+                          console.warn("[deleteProjectWithTeamCode] 삭제 실패(alert는 store에서 처리됨):", e);
                         } finally {
                           setProjectDeleting(false);
                         }
@@ -1079,7 +1149,12 @@ function AppShell() {
                 </div>
               ) : (
                 <>
-              <div className="detail-meta" style={{ fontSize: 11, marginBottom: 8 }}>{(TC[currentEvent.type] || TC.Convention).icon} {currentEvent.type} · 규모 {currentEvent.scale || "미정"}</div>
+              <div className="detail-meta" style={{ fontSize: 11, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                <span>{(TC[currentEvent.type] || TC.Convention).icon} {currentEvent.type} · 규모 {currentEvent.scale || "미정"}</span>
+                {currentEvent.hidden ? (
+                  <span className="tag" style={{ background: "var(--s3)", color: "var(--t2)" }}>🙈 숨김 (팀·교수자만 열람)</span>
+                ) : null}
+              </div>
               <h3>{currentEvent.title}</h3>
               {currentEvent.topic ? (
                 <p className="detail-body" style={{ fontSize: 13, marginBottom: 8 }}>
@@ -1111,6 +1186,7 @@ function AppShell() {
                   </div>
                 </div>
               ) : null}
+              <RecommendationSection event={currentEvent} />
               <div id="fbl">
                 <div className="divider" style={{ margin: "10px 0 12px" }} />
                 <div style={{ fontSize: 10, fontWeight: 700, color: "var(--t3)", letterSpacing: ".07em", textTransform: "uppercase", marginBottom: 8 }}>
@@ -1181,7 +1257,7 @@ function AppShell() {
                     onClick={() => {
                       markNotificationAsRead(item);
                       const event = events.find((ev) => ev.id === item.eventId);
-                      if (event) selectEvent(event);
+                      if (event) openDetail(event);
                       setNotifOpen(false);
                     }}
                   >
@@ -1226,7 +1302,7 @@ function AppShell() {
           </div>
         </div>
         <div id="mr" className={registerOpen ? "open" : ""}>
-          <div style={{ width: "100%", maxWidth: 500, background: "var(--s1)", border: "1px solid var(--bd)", borderRadius: 24, overflow: "hidden" }}>
+          <div style={{ width: "100%", maxWidth: 500, background: "var(--s1)", border: "1px solid var(--bd)", borderRadius: 10, overflow: "hidden" }}>
             <div className="panel-hd" style={{ padding: 19, borderBottom: "1px solid var(--bd)" }}>
               <span>🚀 MICE 기획 등록</span>
               <button type="button" className="btn-hdr" onClick={closeRegisterModal} aria-label="닫기">✕</button>
@@ -1320,81 +1396,32 @@ function AppShell() {
                 />
                 {pdfFiles.length > 0 ? <div style={{ fontSize: 11, color: "var(--t3)", marginTop: 4 }}>{pdfFiles.length}개 파일 선택됨</div> : null}
               </div>
-              <button type="button" className="btn bb" disabled={saving} onClick={() => submitRegister().catch(() => {})}>
+              <label className="card" style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={!!form.hidden}
+                  onChange={(e) => setForm((p) => ({ ...p, hidden: e.target.checked }))}
+                  style={{ width: 15, height: 15, accentColor: "var(--blue2)" }}
+                />
+                <div>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--t1)" }}>🙈 완성 전까지 숨기기</div>
+                  <div style={{ fontSize: 10.5, color: "var(--t3)", marginTop: 2 }}>우리 팀과 교수자에게만 보이고, 수정에서 언제든 공개할 수 있어요.</div>
+                </div>
+              </label>
+              <button type="button" className="btn bb" disabled={saving} onClick={() => submitRegister().catch((e) => console.warn("[submitRegister] 기획 등록 실패:", e))}>
                 {saving ? "저장 중…" : "지도에 기획 게시 →"}
               </button>
             </div>
           </div>
         </div>
-        {teamCodeModal ? (
-          <div id="mr" className="open">
-            <div style={{ width: "100%", maxWidth: 420, background: "var(--s1)", border: "1px solid var(--bd)", borderRadius: 20, overflow: "hidden" }}>
-              <div className="panel-hd" style={{ padding: 16, borderBottom: "1px solid var(--bd)" }}>
-                <span>팀 고유 코드</span>
-                <button type="button" className="btn-hdr" onClick={() => setTeamCodeModal(null)} aria-label="닫기">✕</button>
-              </div>
-              <div style={{ padding: 20, textAlign: "center" }}>
-                <div style={{ fontSize: 12, color: "var(--t3)", marginBottom: 8 }}>{teamCodeModal.name}</div>
-                <div className="mono" style={{ fontSize: 28, letterSpacing: ".14em", fontWeight: 800, color: "var(--blue2)" }}>{teamCodeModal.code}</div>
-                <div style={{ marginTop: 12, fontSize: 11, color: "var(--t3)" }}>이 코드는 변경되지 않으며 팀 가입 시 사용됩니다.</div>
-              </div>
-            </div>
-          </div>
+        {teamManageTeam ? (
+          <TeamManageModal
+            team={teamManageTeam}
+            onClose={() => setTeamManageTeam(null)}
+            onSelectProject={(project) => selectEvent(project)}
+          />
         ) : null}
-        {teamInfoModal ? (
-          <div id="mr" className="open">
-            <div className="team-info-modal">
-              <div className="panel-hd" style={{ padding: 16, borderBottom: "1px solid var(--bd)" }}>
-                <span>{teamInfoModal.name} 팀 정보</span>
-                <button type="button" className="btn-hdr" onClick={() => setTeamInfoModal(null)} aria-label="닫기">✕</button>
-              </div>
-              <div className="scroll" style={{ padding: 16, maxHeight: "70vh", display: "flex", flexDirection: "column", gap: 14 }}>
-                <div className="card" style={{ padding: 12 }}>
-                  <div style={{ fontSize: 11, color: "var(--t3)", marginBottom: 8, fontWeight: 700 }}>팀 구성원</div>
-                  {teamInfoModal.members.length === 0 ? (
-                    <div style={{ fontSize: 12, color: "var(--t2)" }}>등록된 팀원이 없습니다.</div>
-                  ) : (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {teamInfoModal.members.map((memberName) => (
-                        <span key={`${teamInfoModal.name}-${memberName}`} className="card team-member-chip" style={{ padding: "5px 9px", fontSize: 12 }}>
-                          {memberName}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div className="card" style={{ padding: 12 }}>
-                  <div style={{ fontSize: 11, color: "var(--t3)", marginBottom: 8, fontWeight: 700 }}>프로젝트 목록</div>
-                  {teamInfoModal.projects.length === 0 ? (
-                    <div style={{ fontSize: 12, color: "var(--t2)" }}>등록된 프로젝트가 없습니다.</div>
-                  ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      {teamInfoModal.projects.map((project) => (
-                        <button
-                          key={`team-project-${project.id}`}
-                          type="button"
-                          className="ri"
-                          style={{ width: "100%", textAlign: "left", borderRadius: 10, background: "transparent", border: "none", padding: "9px" }}
-                          onClick={() => {
-                            selectEvent(project);
-                            setTeamInfoModal(null);
-                          }}
-                        >
-                          <span style={{ fontSize: 15 }}>{(TC[project.type] || TC.Convention).icon}</span>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 12, fontWeight: 700 }}>{project.title}</div>
-                            <div style={{ fontSize: 10.5, color: "var(--t3)" }}>{project.topic || "주제 미입력"}</div>
-                          </div>
-                          <span style={{ fontSize: 11, color: "var(--blue2)", fontWeight: 700 }}>상세보기</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : null}
+        {classroomOpen ? <ClassroomModal onClose={() => setClassroomOpen(false)} /> : null}
       </div>
     </div>
   );
@@ -1408,15 +1435,16 @@ export default function App() {
   useEffect(() => {
     if (!env.MB_TOK) setError("Mapbox 토큰(MB_TOK)이 없습니다.");
     if (!env.hasSupabase) setError("Supabase 설정이 없습니다.");
-    restoreSession().catch(() => {});
+    restoreSession().catch((e) => console.error("[restoreSession] 세션 복원 실패:", e));
   }, [env, restoreSession, setError]);
   useEffect(() => {
-    ensureChatInbox?.().catch(() => {});
+    ensureChatInbox?.().catch((e) => console.warn("[ensureChatInbox] 초기화 실패:", e));
   }, [ensureChatInbox]);
   return (
     <>
       <MapView />
-      <LoginOverlay />
+      <AuthOverlay />
+      <Onboarding />
       <AppShell />
     </>
   );

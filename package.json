@@ -10,7 +10,9 @@
     "build": "vite build",
     "prestart": "node scripts/generate-frontend-env.mjs",
     "start": "vite preview --host",
-    "db:apply-schema": "node scripts/apply-supabase-schema.mjs"
+    "db:apply-schema": "node scripts/apply-supabase-schema.mjs",
+    "db:backfill-geo": "node scripts/backfill-venue-geo.mjs",
+    "db:backfill-geo:dry": "node scripts/backfill-venue-geo.mjs --dry-run"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
