@@ -184,6 +184,7 @@ export const useAppStore = create((set, get) => ({
   authReady: false,
   needsOnboarding: false,
   authNotice: "",
+  previewMode: false,
   // ── data ────────────────────────────────────────
   profiles: [],
   events: [],
@@ -437,8 +438,10 @@ export const useAppStore = create((set, get) => ({
     ];
     set({
       me,
+      previewMode: true,
       needsOnboarding: false,
       authReady: true,
+      errorMessage: "",
       classrooms: [classroom],
       myClassrooms: [classroom],
       currentClassroom: classroom,
@@ -509,6 +512,7 @@ export const useAppStore = create((set, get) => ({
     }
     set({
       me: null,
+      previewMode: false,
       needsOnboarding: false,
       currentEvent: null,
       detailOpen: false,
@@ -532,6 +536,7 @@ export const useAppStore = create((set, get) => ({
   // Profiles (roster 대체)
   // ══════════════════════════════════════════════
   loadProfiles: async () => {
+    if (get().previewMode) return;
     if (!sb) return;
     const { data, error } = await sb
       .from("profiles")
@@ -562,6 +567,7 @@ export const useAppStore = create((set, get) => ({
   // Classrooms
   // ══════════════════════════════════════════════
   loadClassrooms: async () => {
+    if (get().previewMode) return;
     if (!sb) return;
     const { me } = get();
     const { data: rooms, error } = await sb.from("classrooms").select("*").order("created_at", { ascending: true });
@@ -668,8 +674,8 @@ export const useAppStore = create((set, get) => ({
   // Realtime / polling
   // ══════════════════════════════════════════════
   ensureDataRealtime: async () => {
-    const { me } = get();
-    if (!sb || !me) return;
+    const { me, previewMode } = get();
+    if (previewMode || !sb || !me) return;
     const key = dataKeyForMe(me);
     if (realtimeDataChannel && realtimeDataKey === key) return;
     if (realtimeDataChannel) {
@@ -709,8 +715,8 @@ export const useAppStore = create((set, get) => ({
   },
 
   ensureChatInbox: async () => {
-    const { me } = get();
-    if (!sb || !me) return;
+    const { me, previewMode } = get();
+    if (previewMode || !sb || !me) return;
     const key = inboxKeyForMe(me);
     if (realtimeInboxChannel && realtimeInboxKey === key) return;
     if (realtimeInboxChannel) {
@@ -755,6 +761,7 @@ export const useAppStore = create((set, get) => ({
   // Events (교실 스코프 + hidden 필터)
   // ══════════════════════════════════════════════
   loadEvents: async () => {
+    if (get().previewMode) return;
     if (!sb) return;
     const { me, currentClassroom } = get();
     let q = sb.from("events").select("*").order("created_at", { ascending: false });
@@ -792,6 +799,7 @@ export const useAppStore = create((set, get) => ({
   // Teams (교실 스코프)
   // ══════════════════════════════════════════════
   loadTeams: async () => {
+    if (get().previewMode) return;
     if (!sb) return;
     const { me, currentClassroom } = get();
     let q = sb.from("teams").select("name, color, leader_uid, leader_name, classroom_id, created_at").order("name", { ascending: true });

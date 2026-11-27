@@ -85,17 +85,6 @@ export default function AuthOverlay() {
               <br />
               로그인 없이 화면 구조만 먼저 둘러볼 수 있어요.
             </div>
-            <button
-              type="button"
-              className="btn bb"
-              style={{ width: "100%", padding: 12, borderRadius: 8 }}
-              onClick={enterPreviewMode}
-            >
-              🔍 미리보기 모드로 둘러보기
-            </button>
-            <div style={{ fontSize: 10.5, color: "var(--t3)", marginTop: 8 }}>
-              샘플 데이터로만 표시되고, 실제로 저장되진 않아요.
-            </div>
           </div>
         ) : null}
 
@@ -176,6 +165,20 @@ export default function AuthOverlay() {
             ) : null}
           </>
         )}
+
+        <div style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid var(--bd, rgba(255,255,255,.12))" }}>
+          <button
+            type="button"
+            className="btn"
+            style={{ width: "100%", padding: 12, borderRadius: 8, background: "transparent", border: "1px solid var(--bd, rgba(255,255,255,.18))", color: "var(--t1)" }}
+            onClick={enterPreviewMode}
+          >
+            시연용 테스트 로그인
+          </button>
+          <div style={{ fontSize: 10.5, color: "var(--t3)", marginTop: 8, textAlign: "center", lineHeight: 1.5 }}>
+            계정 없이 샘플 기획·팀·교실로 화면을 둘러봅니다. 저장되지 않습니다.
+          </div>
+        </div>
       </div>
     </div>
   );
